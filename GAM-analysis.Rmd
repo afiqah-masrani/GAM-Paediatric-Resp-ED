@@ -1,0 +1,1022 @@
+---
+title: "GAM air pollution"
+author: "Afiqah"
+date: "2023-04-07"
+output:
+  pdf_document: default
+  html_document: default
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+# Work flow
+
+## 1. Preparation
+### 1.1. Load package
+### 1.2. Load data
+
+## 2. Data exploration
+### 2.1. Data wrangling
+#### 2.1.1. Read and describe data
+#### 2.1.2. Imputation of missing data
+#### 2.1.3. Change variable format
+#### 2.1.4. Visualize air pollutant data
+#### 2.1.5. Visualize weather data
+#### 2.1.6. Total respiratory diagnosis by city
+#### 2.1.7. Ranking of respiratory diseases by period
+#### 2.1.8. Air pollution by city, by period
+#### 2.1.9. Respiratory diseases by city, by period
+
+### 2.2. Variable selection
+
+#### 2.2.1. Correlation
+#### 2.2.2. Comparison of air pollution and respiratory diseases between periods
+#### 2.2.3. Univariate analysis
+
+## 3. Association analysis (Generalized additive model)
+### 3.1. Model selection and checking for assumptions
+### 3.2. Kota Bharu analysis
+### 3.3. Johor Bahru analysis
+
+# Analysis
+
+## 1. Preparation
+
+### 1.1. Load package
+
+```{r}
+library(mice)
+library(dplyr)
+library(ggplot2)
+library(ggpubr)
+library(lubridate)
+library(gtsummary)
+library(corrplot)
+library(mgcv)
+library(ISLR)
+library(voxel)
+library(gridExtra)
+library(mvmeta)
+library(splines)
+library(plot3D)
+library(tidyverse)
+library(rstatix)
+library(foreign)
+library(nnet)
+library(AER)
+library(ggbump)
+library(moments)
+library(MASS)
+```
+
+### 1.2. Load data
+
+```{r}
+data <- read.csv("citydata.csv")
+```
+## 2. Data exploration
+
+## 2. Data exploration
+
+### 2.1. Data wrangling
+
+#### 2.1.1. Read and describe data
+
+```{r}
+glimpse(data)
+summary(data)
+```
+#### 2.1.2. Imputation of missing data
+
+```{r}
+# Missing data pattern
+md.pattern(data)
+
+# Imputation of missing data
+tempData <- mice(data,m=5,maxit=50,meth='pmm',seed=500)
+summary(tempData)
+
+# Explore imputated data
+densityplot(tempData)
+
+#New dataframe
+data2 <- complete(tempData,1)
+
+summary(data2)
+```
+
+#### 2.1.3 Change variable format
+
+```{r}
+data2$Date <- dmy(data2$Date)
+
+data2$Period <- as.factor(data2$Period)
+data2$City <- as.factor(data2$City)
+
+data2$Infection <- data2$A00.B99.Certain.infectious.and.parasitic.diseases
+data2$URTI <- data2$J00.J06_Acute.upper.respiratory.infections
+data2$Pneumonia <- data2$J09.J18_Influenza.and.pneumonia
+data2$LRTI <- data2$J20.J22_Other.acute.lower.respiratory.infections
+data2$CLD <- data2$J40.J47_Chronic.lower.respiratory.diseases
+data2$Pleura <- data2$J90.J94.Other.diseases.of.the.pleura
+data2$Symptoms_Signs <- data2$R00.R09.Symptoms.and.signs.involving.the.circulatory.and.respiratory.systems
+data2$COVID <- data2$U07.1_COVID19
+
+kbdata <- data2[data2$City=='KB',]
+jbdata <- data2[data2$City=='JB',]
+```
+
+#### 2.1.4 Visualize air pollutant data
+
+```{r}
+# Individual plots for air pollutants based on locations
+
+APIKB <- ggplot(kbdata, aes(API))+ geom_histogram(aes(y=..density..)) +
+  stat_function(fun=dnorm, colour="magenta", args=list(mean=mean(kbdata$API), sd=sd(kbdata$API))) + labs(x = "API", y = "Case density")
+
+APIJB <- ggplot(jbdata, aes(API))+ geom_histogram(aes(y=..density..)) +
+  stat_function(fun=dnorm, colour="magenta", args=list(mean=mean(jbdata$API), sd=sd(jbdata$API))) + labs(x = "API", y = "Case density")
+
+PM10KB <- ggplot(kbdata, aes(PM10))+ geom_histogram(aes(y=..density..)) +
+  stat_function(fun=dnorm, colour="magenta", args=list(mean=mean(kbdata$PM10), sd=sd(kbdata$PM10))) + labs(x = "PM10", y = "Case density")
+
+PM10JB <- ggplot(data2[data2$City=='JB',], aes(PM10))+ geom_histogram(aes(y=..density..)) +
+  stat_function(fun=dnorm, colour="magenta", args=list(mean=mean(data2[data2$City=='JB',]$PM10), sd=sd(data2[data2$City=='JB',]$PM10))) + labs(x = "PM10", y = "Case density")
+
+PM2.5KB <- ggplot(data2[data2$City=='KB',], aes(PM2.5))+ geom_histogram(aes(y=..density..)) +
+  stat_function(fun=dnorm, colour="magenta", args=list(mean=mean(data2[data2$City=='KB',]$PM2.5), sd=sd(data2[data2$City=='KB',]$PM2.5))) + labs(x = "PM2.5", y = "Case density")
+
+PM2.5JB <- ggplot(data2[data2$City=='JB',], aes(PM2.5))+ geom_histogram(aes(y=..density..)) +
+  stat_function(fun=dnorm, colour="magenta", args=list(mean=mean(data2[data2$City=='JB',]$PM2.5), sd=sd(data2[data2$City=='JB',]$PM2.5))) + labs(x = "PM2.5", y = "Case density")
+
+SO2KB <- ggplot(data2[data2$City=='KB',], aes(SO2))+ geom_histogram(aes(y=..density..)) +
+  stat_function(fun=dnorm, colour="magenta", args=list(mean=mean(data2[data2$City=='KB',]$SO2), sd=sd(data2[data2$City=='KB',]$SO2))) + labs(x = "SO2", y = "Case density")
+
+SO2JB <- ggplot(data2[data2$City=='JB',], aes(SO2))+ geom_histogram(aes(y=..density..)) +
+  stat_function(fun=dnorm, colour="magenta", args=list(mean=mean(data2[data2$City=='JB',]$SO2), sd=sd(data2[data2$City=='JB',]$SO2))) + labs(x = "SO2", y = "Case density")
+
+NO2KB <- ggplot(data2[data2$City=='KB',], aes(NO2))+ geom_histogram(aes(y=..density..)) +
+  stat_function(fun=dnorm, colour="magenta", args=list(mean=mean(data2[data2$City=='KB',]$NO2), sd=sd(data2[data2$City=='KB',]$NO2))) + labs(x = "NO2", y = "Case density")
+
+NO2JB <- ggplot(data2[data2$City=='JB',], aes(NO2))+ geom_histogram(aes(y=..density..)) +
+  stat_function(fun=dnorm, colour="magenta", args=list(mean=mean(data2[data2$City=='JB',]$NO2), sd=sd(data2[data2$City=='JB',]$NO2))) + labs(x = "NO2", y = "Case density")
+
+O3KB <- ggplot(data2[data2$City=='KB',], aes(O3))+ geom_histogram(aes(y=..density..)) +
+  stat_function(fun=dnorm, colour="magenta", args=list(mean=mean(data2[data2$City=='KB',]$O3), sd=sd(data2[data2$City=='KB',]$O3))) + labs(x = "O3", y = "Case density")
+
+O3JB <- ggplot(data2[data2$City=='JB',], aes(O3))+ geom_histogram(aes(y=..density..)) +
+  stat_function(fun=dnorm, colour="magenta", args=list(mean=mean(data2[data2$City=='JB',]$O3), sd=sd(data2[data2$City=='JB',]$O3))) + labs(x = "O3", y = "Case density")
+
+COKB <- ggplot(data2[data2$City=='KB',], aes(CO3))+ geom_histogram(aes(y=..density..)) +
+  stat_function(fun=dnorm, colour="magenta", args=list(mean=mean(data2[data2$City=='KB',]$CO3), sd=sd(data2[data2$City=='KB',]$CO3))) + labs(x = "CO", y = "Case density")
+
+COJB <- ggplot(data2[data2$City=='JB',], aes(CO3))+ geom_histogram(aes(y=..density..)) +
+  stat_function(fun=dnorm, colour="magenta", args=list(mean=mean(data2[data2$City=='JB',]$CO3), sd=sd(data2[data2$City=='JB',]$CO))) + labs(x = "CO", y = "Case density")
+
+# Combine plots into one
+
+ggarrange(APIKB, APIJB, PM10KB, PM10JB, PM2.5KB, PM2.5JB, SO2KB, SO2JB, NO2KB, NO2JB, O3KB, O3JB, COKB, COJB,
+          heights = 100,
+          ncol = 2, nrow = 7)
+
+```
+
+Test for equal variance
+
+```{r}
+leveneTest(API ~ Period, data = kbdata)
+```
+
+Checking for skewness
+
+```{r}
+skewness(data2[data2$City=='JB',]$CO3, na.rm = TRUE)
+
+skewness(data2[data2$City=='KB',]$O3, na.rm = TRUE)
+```
+
+Transform skewed data
+
+```{r}
+kbdata$O3 <- 1/(kbdata$O3)
+
+jbdata$CO3 <- 1/(jbdata$CO3)
+```
+
+Rechecking the data
+
+```{r}
+# Distribution of KB O3 variable
+ggdensity(kbdata, x = "O3", fill = "lightgray", title = "KB O3") +
+  stat_overlay_normal_density(color = "red", linetype = "dashed")
+
+# Distribution of JB CO variable
+ggdensity(jbdata, x = "CO3", fill = "lightgray", title = "JB CO") +
+  stat_overlay_normal_density(color = "red", linetype = "dashed")
+
+skewness(kbdata$O3, na.rm = TRUE)
+skewness(jbdata$CO3, na.rm = TRUE)
+```
+
+Time series of air pollutant
+
+```{r}
+data$Date <- dmy(data$Date)
+
+APIKB2 <- ggplot(data[data$City=='KB',], aes(x=Date, y=API)) + geom_smooth() + labs(x = "Year") + ylab("Air pollution index")
+
+APIJB2 <- ggplot(data[data$City=='JB',], aes(x=Date, y=API)) + geom_smooth() + labs(x = "Year") + ylab("Air pollution index")
+
+PM10KB2 <- ggplot(data[data$City=='KB',], aes(x=Date, y=PM10)) + geom_smooth()+ labs(x = "Year") + ylab("PM10")
+
+PM10JB2 <- ggplot(data[data$City=='JB',], aes(x=Date, y=PM10)) + geom_smooth() + labs(x = "Year") + ylab("PM10")
+
+PM2.5KB2 <- ggplot(data[data$City=='KB',], aes(x=Date, y=PM2.5)) + geom_smooth() + labs(x = "Year") + ylab("PM2.5")
+
+PM2.5JB2 <- ggplot(data[data$City=='JB',], aes(x=Date, y=PM2.5)) + geom_smooth() + labs(x = "Year") + ylab("PM2.5")
+
+SO2KB2 <- ggplot(data[data$City=='KB',], aes(x=Date, y=SO2)) + geom_smooth() + labs(x = "Year") + ylab("Sulphur dioxide")
+
+SO2JB2 <- ggplot(data[data$City=='JB',], aes(x=Date, y=SO2)) + geom_smooth() + labs(x = "Year") + ylab("Sulphur dioxide")
+
+NO2KB2 <- ggplot(data[data$City=='KB',], aes(x=Date, y=NO2)) + geom_smooth() + labs(x = "Year") + ylab("Nitrogen dioxide")
+
+NO2JB2 <- ggplot(data[data$City=='JB',], aes(x=Date, y=NO2)) + geom_smooth() + labs(x = "Year") + ylab("Nitrogen dioxide")
+
+O3KB2 <- ggplot(data[data$City=='KB',], aes(x=Date, y=O3)) + geom_smooth() + labs(x = "Year") + ylab("Ozone")
+
+O3JB2 <- ggplot(data[data$City=='JB',], aes(x=Date, y=O3)) + geom_smooth() + labs(x = "Year") + ylab("Ozone")
+
+COKB2 <- ggplot(data[data$City=='KB',], aes(x=Date, y=CO3)) + geom_smooth() + labs(x = "Year") + ylab("Carbon monoxide")
+
+COJB2 <- ggplot(data[data$City=='JB',], aes(x=Date, y=CO3)) + geom_smooth() + labs(x = "Year") + ylab("Carbon monoxide")
+
+# Combine plots into one
+
+ggarrange(APIKB2, APIJB2, PM10KB2, PM10JB2, PM2.5KB2, PM2.5JB2, SO2KB2, SO2JB2, NO2KB2, NO2JB2, O3KB2, O3JB2, COKB2, COJB2,
+          heights = 100,
+          ncol = 2, nrow = 7)
+```
+
+#### 2.1.5 Visualize weather data
+
+```{r}
+
+# Individual plots for weather variables based on locations
+
+maxtempkb <- ggplot(data2[data2$City=='KB',], aes(Max))+ geom_histogram(aes(y=..density..)) +
+  stat_function(fun=dnorm, colour="magenta", args=list(mean=mean(data2[data2$City=='KB',]$Max), sd=sd(data2[data2$City=='KB',]$Max))) + labs(x = "Max temperature", y = "Case density")
+
+maxtempjb <- ggplot(data2[data2$City=='JB',], aes(Max))+ geom_histogram(aes(y=..density..)) +
+  stat_function(fun=dnorm, colour="magenta", args=list(mean=mean(data2[data2$City=='JB',]$Max), sd=sd(data2[data2$City=='JB',]$Max))) + labs(x = "Max temperature", y = "Case density")
+
+meantempkb <- ggplot(data2[data2$City=='KB',], aes(Mean))+ geom_histogram(aes(y=..density..)) +
+  stat_function(fun=dnorm, colour="magenta", args=list(mean=mean(data2[data2$City=='KB',]$Mean), sd=sd(data2[data2$City=='KB',]$Mean))) + labs(x = "Mean temperature", y = "Case density")
+
+meantempjb <- ggplot(data2[data2$City=='JB',], aes(Mean))+ geom_histogram(aes(y=..density..)) +
+  stat_function(fun=dnorm, colour="magenta", args=list(mean=mean(data2[data2$City=='JB',]$Mean), sd=sd(data2[data2$City=='JB',]$Mean))) + labs(x = "Mean", y = "Case density")
+
+mintempkb <- ggplot(data2[data2$City=='KB',], aes(Mean))+ geom_histogram(aes(y=..density..)) +
+  stat_function(fun=dnorm, colour="magenta", args=list(mean=mean(data2[data2$City=='KB',]$Mean), sd=sd(data2[data2$City=='KB',]$Min))) + labs(x = "Min temperature", y = "Case density")
+
+mintempjb <- ggplot(data2[data2$City=='JB',], aes(Min))+ geom_histogram(aes(y=..density..)) +
+  stat_function(fun=dnorm, colour="magenta", args=list(mean=mean(data2[data2$City=='JB',]$Min), sd=sd(data2[data2$City=='JB',]$Min))) + labs(x = "Min temperature", y = "Case density")
+
+rainkb <- ggplot(data2[data2$City=='KB',], aes(Rainfall))+ geom_histogram(aes(y=..density..)) +
+  stat_function(fun=dnorm, colour="magenta", args=list(mean=mean(data2[data2$City=='KB',]$Rainfall), sd=sd(data2[data2$City=='KB',]$Rainfall))) + labs(x = "Rainfall", y = "Case density")
+
+rainjb <- ggplot(data2[data2$City=='JB',], aes(Rainfall))+ geom_histogram(aes(y=..density..)) +
+  stat_function(fun=dnorm, colour="magenta", args=list(mean=mean(data2[data2$City=='JB',]$Rainfall), sd=sd(data2[data2$City=='JB',]$Rainfall))) + labs(x = "Rainfall", y = "Case density")
+
+windkb <- ggplot(data2[data2$City=='KB',], aes(Wind))+ geom_histogram(aes(y=..density..)) +
+  stat_function(fun=dnorm, colour="magenta", args=list(mean=mean(data2[data2$City=='KB',]$Wind), sd=sd(data2[data2$City=='KB',]$Wind))) + labs(x = "Wind", y = "Case density")
+
+windjb <- ggplot(data2[data2$City=='JB',], aes(Wind))+ geom_histogram(aes(y=..density..)) +
+  stat_function(fun=dnorm, colour="magenta", args=list(mean=mean(data2[data2$City=='JB',]$Wind), sd=sd(data2[data2$City=='JB',]$Wind))) + labs(x = "Wind", y = "Case density")
+
+# Combine plots into one
+
+ggarrange(maxtempkb, maxtempjb, meantempkb, meantempjb, mintempkb, mintempjb, rainkb, rainjb, windkb, windjb,
+          heights = 100,
+          ncol = 2, nrow = 5)
+```
+
+Checking for skewness of rainfall data
+
+```{r}
+skewness(kbdata$Rainfall)
+skewness(jbdata$Rainfall)
+```
+
+Cube root transformation of the skewed data
+
+```{r}
+kbdata$Rainfall <- kbdata$Rainfall^(1/3)
+jbdata$Rainfall <- jbdata$Rainfall^(1/3)
+```
+
+Rechecking for rainfall data
+
+```{r}
+# Distribution of KB rainfall
+ggdensity(kbdata, x = "Rainfall", fill = "lightgray", title = "Rainfall") +
+  stat_overlay_normal_density(color = "red", linetype = "dashed")
+
+# Distribution of JB rainfall
+ggdensity(jbdata, x = "Rainfall", fill = "lightgray", title = "Rainfall") +
+  stat_overlay_normal_density(color = "red", linetype = "dashed")
+
+skewness(kbdata$Rainfall)
+skewness(jbdata$Rainfall)
+```
+
+Summary of meteorological variables
+
+```{r}
+data2[data2$City=='KB',] %>%
+    get_summary_stats(c("Rainfall", "Min", "Max", "Mean", "Rainfall", "Wind"), type = "mean_sd")
+
+data2[data2$City=='JB',] %>%
+    get_summary_stats(c("Rainfall", "Min", "Max", "Mean", "Rainfall", "Wind"), type = "mean_sd")
+```
+
+Comparison of meteorological variables in JB and KB
+
+```{r}
+rainkb <- rnorm(1827, mean = 7.444, sd = 19.74)
+rainjb <- rnorm(1827, mean = 7.00, sd = 14.64)
+t.test(rainkb, rainjb, var.equal = FALSE)
+
+windkb <- rnorm(1827, mean = 2.31, sd = 0.95)
+windjb <- rnorm(1827, mean = 1.53, sd = 0.52)
+t.test(windkb, windjb, var.equal = FALSE)
+
+minkb <- rnorm(1827, mean = 24.4, sd = 1.07)
+minjb <- rnorm(1827, mean = 23.95, sd = 0.75)
+t.test(minkb, minjb, var.equal = FALSE)
+
+meankb <- rnorm(1827, mean = 27.44, sd = 1.17)
+meanjb <- rnorm(1827, mean = 27.08, sd = 1.03)
+t.test(meankb, meanjb, var.equal = FALSE)
+
+maxkb <- rnorm(1827, mean = 31.4, sd = 1.74)
+maxjb <- rnorm(1827, mean = 32.29, sd = 2.8)
+t.test(maxkb, maxjb, var.equal = FALSE)
+```
+
+#### 2.1.6. Total respiratory diagnosis by city
+
+```{r}
+RespiKB <- ggplot(data2[data2$City=='KB',], aes(ED))+ geom_histogram(aes(y=..density..)) +
+  stat_function(fun=dnorm, colour="magenta", args=list(mean=mean(data2[data2$City=='KB',]$ED), sd=sd(data2[data2$City=='KB',]$ED))) + labs(x = "Total ED respiratory cases", y = "Case density")
+
+
+RespiJB <- ggplot(data2[data2$City=='JB',], aes(ED))+ geom_histogram(aes(y=..density..)) +
+  stat_function(fun=dnorm, colour="magenta", args=list(mean=mean(data2[data2$City=='JB',]$ED), sd=sd(data2[data2$City=='JB',]$ED))) + labs(x = "Total ED respiratory cases", y = "Case density")
+
+
+ggarrange(RespiKB, RespiJB,
+          heights = 100,
+          ncol = 2, nrow = 1)
+```
+
+#### 2.1.7. Ranking of respiratory diseases by period
+
+```{r}
+my_theme <- function() {
+
+  # Colors
+  color.background = "white"
+  color.text = "#22211d"
+
+  # Begin construction of chart
+  theme_bw(base_size=15) +
+
+    # Format background colors
+    theme(panel.background = element_rect(fill=color.background, color=color.background)) +
+    theme(plot.background  = element_rect(fill=color.background, color=color.background)) +
+    theme(panel.border     = element_rect(color=color.background)) +
+    theme(strip.background = element_rect(fill=color.background, color=color.background)) +
+
+    # Format the grid
+    theme(panel.grid.major.y = element_blank()) +
+    theme(panel.grid.minor.y = element_blank()) +
+    theme(axis.ticks       = element_blank()) +
+
+    # Format the legend
+    theme(legend.position = "none") +
+
+    # Format title and axis labels
+    theme(plot.title       = element_text(color=color.text, size=20, face = "bold")) +
+    theme(axis.title.x     = element_text(size=14, color="black", face = "bold")) +
+    theme(axis.title.y     = element_text(size=14, color="black", face = "bold", vjust=1.25)) +
+    theme(axis.text.x      = element_text(size=10, vjust=0.5, hjust=0.5, color = color.text)) +
+    theme(axis.text.y      = element_text(size=10, color = color.text)) +
+    theme(strip.text       = element_text(face = "bold")) +
+
+    # Plot margins
+    theme(plot.margin = unit(c(0.35, 0.2, 0.3, 0.35), "cm"))
+}
+```
+
+##### KB rank
+
+```{r}
+rankkb <- read.csv('respirankkb.csv')
+
+rankkb$Period2 <- as.factor(rankkb$Period2)
+
+kb.rank <- rankkb %>% 
+  group_by(Period) %>% 
+  arrange(Period2, Rank, Diagnosis) %>% 
+  mutate(ranking = row_number()) %>% 
+  as.data.frame()
+
+head(kb.rank)
+
+ggplot(data = kb.rank, aes(x = Period2, y = ranking, group = Diagnosis)) +
+  geom_line(aes(color = Diagnosis, alpha = 1), size = 2) +
+  geom_point(aes(color = Diagnosis, alpha = 1), size = 3) +
+  geom_point(color = "#FFFFFF", size = 1) +
+  scale_y_reverse(breaks = 1:8) +
+  coord_cartesian(ylim = c(1,8)) + 
+  theme(legend.position = "none") +
+  my_theme() 
+
+```
+
+##### JB rank
+
+```{r}
+rankjb <- read.csv('respirankjb.csv')
+
+rankjb$Period2 <- as.factor(rankjb$Period2)
+
+jb.rank <- rankjb %>% 
+  group_by(Period) %>% 
+  arrange(Period2, Rank, Diagnosis) %>% 
+  mutate(ranking = row_number()) %>% 
+  as.data.frame()
+
+head(jb.rank)
+
+ggplot(data = jb.rank, aes(x = Period2, y = ranking, group = Diagnosis)) +
+  geom_line(aes(color = Diagnosis, alpha = 1), size = 2) +
+  geom_point(aes(color = Diagnosis, alpha = 1), size = 3) +
+  geom_point(color = "#FFFFFF", size = 1) +
+  scale_y_reverse(breaks = 1:8) +
+  coord_cartesian(ylim = c(1,8)) + 
+  theme(legend.position = "none") +
+  my_theme() 
+
+```
+
+#### 2.1.8. Air pollution by city, by period
+
+```{r}
+data2[data2$City=='KB',] %>%
+  group_by(Period) %>%
+  get_summary_stats(c("API", "PM10", "PM2.5", "SO2", "NO2", "CO3", "O3"), type = "mean_sd")
+
+data2[data2$City=='JB',] %>%
+  group_by(Period) %>%
+  get_summary_stats(c("API", "PM10", "PM2.5", "SO2", "NO2", "CO3", "O3"), type = "mean_sd")
+
+```
+
+#### 2.1.9. Respiratory diseases by city, by period
+
+```{r}
+data2[data2$City=='KB',] %>%
+  group_by(Period) %>%
+  get_summary_stats(c("Infection", "URTI", "Pneumonia", "LRTI", "CLD", "Symptoms_Signs", "COVID"))
+
+data2[data2$City=='JB',] %>%
+  group_by(Period) %>%
+  get_summary_stats(c("Infection", "URTI", "Pneumonia", "LRTI", "CLD", "Symptoms_Signs", "COVID"))
+```
+
+### 2.2. Variable selection
+
+#### 2.2.1. Correlation
+
+```{r}
+# Kota Bharu
+##Select numerical variables
+
+datakb <- data2[data2$City=='KB', -1:-12]
+
+##Correlation matrix
+cor.datakb <- cor(datakb, use="complete.obs", method="pearson")
+head(round(cor.datakb,2))
+
+##Plot correlogram
+corrplot(cor.datakb, method="circle")
+
+
+# Johor Bahru
+##Select numerical variables
+
+datajb <- data2[data2$City=='JB', -1:-12]
+
+##Correlation matrix
+cor.datajb <- cor(datajb, use="complete.obs", method="pearson")
+head(round(cor.datajb,2))
+
+##Plot correlogram
+corrplot(cor.datajb, method="circle")
+```
+
+Since the air pollution index and particulate matters are highly correlated, two separate analysis with the first containing API only and the other for the separate pollutants will be conducted. These models will then be compared to determine robustness of the models.
+
+Considering that the maximum and minimum temperature are highly correlated with mean temperature, only the mean temperature will be included as covariates in the models.
+
+#### 2.2.2. Comparison of air pollution and respiratory diseases between periods
+
+##### JBKB API t-test
+
+```{r}
+statJBAPI <- data2[data2$City=='JB',] %>%
+  t_test(API ~ Period) %>%
+  add_significance()
+statJBAPI
+
+statKBAPI <- data2[data2$City=='KB',] %>%
+  t_test(API ~ Period) %>%
+  add_significance()
+statKBAPI
+```
+
+##### JBKB PM10 t-test
+
+```{r}
+statJBPM10 <- data2[data2$City=='JB',] %>%
+  t_test(PM10 ~ Period) %>%
+  add_significance()
+statJBPM10
+
+statKBPM10 <- data2[data2$City=='KB',] %>%
+  t_test(PM10 ~ Period) %>%
+  add_significance()
+statKBPM10
+```
+
+##### JBKB PM2.5 t-test
+
+```{r}
+statJBPM2.5 <- data2[data2$City=='JB',] %>%
+  t_test(PM2.5 ~ Period) %>%
+  add_significance()
+statJBPM2.5
+
+statKBPM2.5 <- data2[data2$City=='KB',] %>%
+  t_test(PM2.5 ~ Period) %>%
+  add_significance()
+statKBPM2.5
+```
+
+##### JBKB SO2 t-test
+
+```{r}
+statJBSO2 <- data2[data2$City=='JB',] %>%
+  t_test(SO2 ~ Period) %>%
+  add_significance()
+statJBSO2
+
+statKBSO2 <- data2[data2$City=='KB',] %>%
+  t_test(SO2 ~ Period) %>%
+  add_significance()
+statKBSO2
+```
+
+##### JBKB NO2 t-test
+
+```{r}
+statJBNO2 <- data2[data2$City=='JB',] %>%
+  t_test(NO2 ~ Period) %>%
+  add_significance()
+statJBNO2
+
+statKBNO2 <- data2[data2$City=='KB',] %>%
+  t_test(NO2 ~ Period) %>%
+  add_significance()
+statKBNO2
+```
+
+##### JBKB CO t-test
+
+```{r}
+statJBCO <- data2[data2$City=='JB',] %>%
+  t_test(CO3 ~ Period) %>%
+  add_significance()
+statJBCO
+
+statKBCO <- data2[data2$City=='KB',] %>%
+  t_test(CO3 ~ Period) %>%
+  add_significance()
+statKBCO
+```
+
+##### JBKB 03 t-test
+
+```{r}
+statJBO3 <- data2[data2$City=='JB',] %>%
+  t_test(O3 ~ Period) %>%
+  add_significance()
+statJBO3
+
+statKBO3 <- data2[data2$City=='KB',] %>%
+  t_test(O3 ~ Period) %>%
+  add_significance()
+statKBO3
+```
+
+##### JBKB infectious or other parasitic t test
+
+```{r}
+statJBparasitic <- data2[data2$City=='JB',] %>%
+  t_test(Infection ~ Period) %>%
+  add_significance()
+statJBparasitic
+
+statKBparasitic <- data2[data2$City=='KB',] %>%
+  t_test(Infection ~ Period) %>%
+  add_significance()
+statKBparasitic
+```
+
+##### JBKB URTI t test
+
+```{r}
+statJBurti <- data2[data2$City=='JB',] %>%
+  t_test(URTI ~ Period) %>%
+  add_significance()
+statJBurti
+
+statKBurti <- data2[data2$City=='KB',] %>%
+  t_test(URTI ~ Period) %>%
+  add_significance()
+statKBurti
+```
+
+##### JBKB influenza or pneumonia t test
+
+```{r}
+statJBinfluenza <- data2[data2$City=='JB',] %>%
+  t_test(Pneumonia ~ Period) %>%
+  add_significance()
+statJBinfluenza
+
+statKBinfluenza <- data2[data2$City=='KB',] %>%
+  t_test(Pneumonia ~ Period) %>%
+  add_significance()
+statKBinfluenza
+```
+
+##### JBKB LRTI t test
+
+```{r}
+statJBlrti <- data2[data2$City=='JB',] %>%
+  t_test(LRTI ~ Period) %>%
+  add_significance()
+statJBlrti
+
+statKBlrti <- data2[data2$City=='KB',] %>%
+  t_test(LRTI ~ Period) %>%
+  add_significance()
+statKBlrti
+```
+
+##### JBKB CLD t test
+
+```{r}
+statJBcld <- data2[data2$City=='JB',] %>%
+  t_test(CLD ~ Period) %>%
+  add_significance()
+statJBcld
+
+statKBcld <- data2[data2$City=='KB',] %>%
+  t_test(CLD ~ Period) %>%
+  add_significance()
+statKBcld
+```
+
+##### JBKB Symptoms_Signs t test
+
+```{r}
+statJBsx <- data2[data2$City=='JB',] %>%
+  t_test(Symptoms_Signs ~ Period) %>%
+  add_significance()
+statJBsx
+
+statKBsx <- data2[data2$City=='KB',] %>%
+  t_test(Symptoms_Signs ~ Period) %>%
+  add_significance()
+statKBsx
+```
+
+##### JBKB covid t test
+
+```{r}
+statJBcovid <- data2[data2$City=='JB',] %>%
+  t_test(COVID ~ Period) %>%
+  add_significance()
+statJBcovid
+
+statKBcovid <- data2[data2$City=='KB',] %>%
+  t_test(COVID ~ Period) %>%
+  add_significance()
+statKBcovid
+```
+
+##### Multinomial logistic regression for comparing air pollution and respiratory diseases between periods
+```{r}
+library(VGAM)
+
+respidata <- read.csv("CleanRespi.csv")
+
+respidata$Period <- as.factor(respidata$Period)
+respidata$Respiratory.ICD.10 <- as.factor(respidata$Respiratory.ICD.10)
+respidata$Hospital <- as.factor(respidata$Hospital)
+
+respidata$Period <- relevel(respidata$Period, ref = "1")
+respidata$Respiratory.ICD.10 <- relevel(respidata$Respiratory.ICD.10, ref = "U07.1_COVID19")
+
+kbrespi <- respidata[respidata$Hospital=="HRPZ",]
+jbrespi <- respidata[respidata$Hospital=="HSI",]
+
+# Multi-nomial model
+
+modelkb <- vglm(Period ~ RespiDx , multinomial(refLevel = 1), data = kbrespi)
+summary(modelkb)
+
+modeljb <- vglm(Period ~ RespiDx , multinomial(refLevel = 1), data = jbrespi)
+summary(modeljb)
+```
+
+Getting the odds ratio for the models
+```{r}
+exp(confintvglm(modelkb))
+exp(coef(modelkb))
+
+exp(confintvglm(modeljb))
+exp(coef(modeljb))
+
+```
+
+#### 2.2.3. Univariate analysis
+
+```{r}
+UVKB <- tbl_uvregression(
+ data2[data2$City=='KB', c("ED", "API", "PM10", "PM2.5", "SO2", "CO3", "O3", "NO2")],
+  method = glm,
+  y = ED) %>%
+  bold_p() 
+
+UVJB <- tbl_uvregression(
+  data2[data2$City=='JB', c("ED", "API", "PM10", "PM2.5", "SO2", "CO3", "O3", "NO2")],
+  method = glm,
+  y = ED) %>%
+  bold_p()
+
+tbl_merge(tbls = list(UVKB, UVJB),
+          tab_spanner = c("**Kota Bharu**", "**Johor Bahru**")
+          )
+```
+
+## 3. Association analysis
+
+Change of variable format
+
+```{r}
+kbdata$time <- as.numeric(kbdata$Date)/100
+kbdata$doy <- as.numeric(format(kbdata$Date, format = "%j"))
+kbdata$year <- format(kbdata$Date, format = "%Y")
+
+
+jbdata$time <- as.numeric(jbdata$Date)/100
+jbdata$doy <- as.numeric(format(jbdata$Date, format = "%j"))
+jbdata$year <- format(jbdata$Date, format = "%Y")
+
+kbdata$Rainfall2 <- kbdata$Rainfall^(1/3)
+kbdata$O32 <- 1/kbdata$O3
+```
+
+### 3.1. KB ED
+
+#### 3.1.1. Model selection and checking
+
+```{r}
+
+kb_total <- gam(ED ~ s(PM10) + s(NO2) + s(CO3) + s(SO2) + s(O3) + s(Mean) + s(Rainfall) + s(Wind) + s(doy, bs="cc", k=365) + s(time, k=80) + Period, data = kbdata, method = "REML", family = 'poisson')
+summary(kb_total)
+
+plot.gam(kb_total, shade = TRUE, shade.col = "lightblue", shift = coef(kb_total)[1],  seWithMean = TRUE)
+
+gam.check(kb_total)
+```
+
+Checking for concurvity
+
+```{r}
+concurvity(kb_total, full = TRUE)
+
+concurvity(kb_total, full = FALSE)
+```
+
+A value of more than 0.8 is considered to have high concurvity between 2 variables. 2 pairings are noted to have high concurvity, PM10-PM2.5, and CO-O3. PM2.5 is excluded from the final model. However, Co and O3 is maintained until after comparison with JB data
+
+```{r}
+
+kb_nopm2.5 <- gam(ED ~ s(PM10) + s(NO2) + s(CO3) + s(SO2) + s(O3) + s(Mean) + s(Rainfall) + s(Wind) + s(doy, bs="cc", k=365) + s(time) + Period, data = kbdata, method = "REML", family = 'poisson')
+summary(kb_nopm2.5)
+
+plot.gam(kb_nopm2.5, shade = TRUE, shade.col = "lightblue", shift = coef(kb_nopm2.5)[1],  seWithMean = TRUE)
+
+gam.check(kb_nopm2.5)
+```
+
+```{r}
+concurvity(kb_nopm2.5, full = FALSE)
+```
+ 
+ Much better. Proceed with comparison with JB data
+ 
+JB model
+```{r}
+
+jb_mod <- gam(ED ~ s(PM10) + s(NO2) + s(CO3) + s(SO2) + s(O3) + s(Mean) + s(Rainfall) + s(Wind) + s(doy, bs="cc", k=365) + s(time, bs ="cc") + Period, data = jbdata, method = "REML", family = 'poisson')
+summary(jb_mod)
+
+plot.gam(jb_mod, shade = TRUE, shade.col = "lightblue", shift = coef(jb_mod)[1],  seWithMean = TRUE)
+
+gam.check(jb_mod)
+
+concurvity(jb_mod, full = FALSE)
+```
+
+For JB data without PM 2.5, the concurvity analysis shows no pairings of variables with high concurvity, including ozone and carbon monoxide. Therefore, both these variables will be included in the final model for comparison between locations.
+
+Checking for 'Period' as an interaction term
+```{r}
+kb_mod_period <- gam(ED ~ s(PM10, by=Period) + s(NO2, by=Period) + s(CO3, by=Period) + s(SO2, by=Period) + s(O3, by=Period) + s(Mean) + s(Rainfall) + s(Wind) + s(doy, bs="cc", k=365) + s(time, bs ="bs") + Period, data = kbdata, method = "REML", family = 'poisson')
+
+summary(kb_mod_period)
+
+plot.gam(kb_mod_period, shade = TRUE, shade.col = "lightblue", shift = coef(kb_mod_period)[1],  seWithMean = TRUE, ylim = c(0, 15))
+
+gam.check(kb_mod_period)
+```
+
+Checking for the validity of including 'Period' as interaction within the model
+
+```{r}
+vis.gam(kb_mod_period, theta = 120, n.grid = 51, lwd = 0.4)
+```
+
+Compare models with and without interaction
+
+```{r}
+AIC(kb_nopm2.5, kb_mod_period)
+```
+
+Since the AIC for the model with interaction is higher compared to without the interaction, the model with interaction will be included as the final model
+
+### JB by period
+
+```{r}
+jb_mod_period <- gam(ED ~ s(PM10, by=Period) + s(NO2, by=Period) + s(CO3, by=Period) + s(SO2, by=Period) + s(O3, by=Period) + s(Mean) + s(Rainfall) + s(Wind) + s(doy, bs="cc", k=365) + s(time, bs = "bs") + Period, data = jbdata, method = "REML", family = 'poisson')
+summary(jb_mod_period)
+
+plot.gam(jb_mod_period, shade = TRUE, shade.col = "lightblue", shift = coef(jb_mod_period)[1],  seWithMean = TRUE)
+
+gam.check(jb_mod_period)
+```
+
+Further analysis based on the different respiratory diagnoses
+
+### 3.2 KB analysis
+
+#### KB URTI by Period
+
+```{r}
+
+kb_URTI_period <- gam(URTI ~ s(PM10, by=Period) + s(NO2, by=Period) + s(CO3, by=Period) + s(SO2, by=Period) + s(O3, by=Period) + s(Mean) + s(Rainfall) + s(Wind) + s(doy, bs="cc", k=365) + s(time, bs ="bs") + Period, data = kbdata, method = "REML", family = 'poisson')
+summary(kb_URTI_period)
+
+plot.gam(kb_URTI_period, shade = TRUE, shade.col = "lightblue", shift = coef(kb_URTI_period)[1],  seWithMean = TRUE)
+
+gam.check(kb_URTI_period)
+```
+
+#### KB influenza or pneumonia by period
+
+```{r}
+
+kb_pneumo_period <- gam(Pneumonia ~ s(PM10, by=Period) + s(NO2, by=Period) + s(CO3, by=Period) + s(SO2, by=Period) + s(O3, by=Period) + s(Mean) + s(Rainfall) + s(Wind) + s(doy, bs = "cc", k = 365) + s(time, bs="bs") + Period, data = kbdata, method = "REML", family = 'poisson')
+summary(kb_pneumo_period)
+
+plot.gam(kb_pneumo_period, shade = TRUE, shade.col = "lightblue", shift = coef(kb_pneumo_period)[1],  seWithMean = TRUE)
+
+gam.check(kb_pneumo_period)
+```
+
+#### KB CLD by period
+
+```{r}
+
+kb_CLD_period <- gam(CLD ~ s(PM10, by=Period) + s(NO2, by=Period) + s(CO3, by=Period) + s(SO2, by=Period) + s(O3, by=Period) + s(Mean) + s(Rainfall) + s(Wind) + s(doy, bs="cc", k=365) + s(time, bs="bs") + Period, data = kbdata, method = "REML", family = 'poisson')
+summary(kb_CLD_period)
+
+plot.gam(kb_CLD_period, shade = TRUE, shade.col = "lightblue", shift = coef(kb_CLD_period)[1],  seWithMean = TRUE)
+
+gam.check(kb_CLD_period)
+```
+
+#### KB LRTI by period
+
+```{r}
+
+kb_LRTI_period <- gam(LRTI ~ s(PM10, by=Period) + s(NO2, by=Period) + s(CO3, by=Period) + s(SO2, by=Period) + s(O3, by=Period) + s(Mean) + s(Rainfall) + s(Wind) + s(doy, bs="cc", k=365) + s(time, bs="bs") + Period, data = kbdata, method = "REML", family = 'poisson')
+summary(kb_LRTI_period)
+
+plot.gam(kb_LRTI_period, shade = TRUE, shade.col = "lightblue", shift = coef(kb_LRTI_period)[1],  seWithMean = TRUE)
+
+gam.check(kb_LRTI_period)
+```
+
+#### KB SX by period
+
+```{r}
+
+kb_sx_period <- gam(Symptoms_Signs ~ s(PM10, by=Period) + s(NO2, by=Period) + s(CO3, by=Period) + s(SO2, by=Period) + s(O3, by=Period) + s(Mean) + s(Rainfall) + s(Wind) + s(doy, bs="cc", k=365) + s(time, bs="bs") + Period, data = kbdata, method = "REML", family = 'poisson')
+summary(kb_sx_period)
+
+plot.gam(kb_sx_period, shade = TRUE, shade.col = "lightblue", shift = coef(kb_sx_period)[1],  seWithMean = TRUE)
+
+gam.check(kb_sx_period)
+```
+
+#### JB URTI by Period
+
+```{r}
+
+jb_URTI_period <- gam(URTI ~ s(PM10, by=Period) + s(NO2, by=Period) + s(CO3, by=Period) + s(SO2, by=Period) + s(O3, by=Period) + s(Mean) + s(Rainfall) + s(Wind) + s(doy, bs="cc", k=365) + s(time, bs="bs") + Period, data = jbdata, method = "REML", family = 'poisson')
+summary(jb_URTI_period)
+
+plot.gam(jb_URTI_period, shade = TRUE, shade.col = "lightblue", shift = coef(jb_URTI_period)[1],  seWithMean = TRUE)
+
+gam.check(jb_URTI_period)
+```
+
+#### KB influenza or pneumonia by period
+
+```{r}
+
+jb_pneumo_period <- gam(Pneumonia ~ s(PM10, by=Period) + s(NO2, by=Period) + s(CO3, by=Period) + s(SO2, by=Period) + s(O3, by=Period) + s(Mean) + s(Rainfall) + s(Wind) + s(doy, bs="cc", k=365) + s(time, bs = "bs") + Period, data = jbdata, method = "REML", family = 'poisson')
+summary(jb_pneumo_period)
+
+plot.gam(jb_pneumo_period, shade = TRUE, shade.col = "lightblue", shift = coef(jb_pneumo_period)[1],  seWithMean = TRUE)
+
+gam.check(jb_pneumo_period)
+```
+
+### 3.3 Johor Bahru analysis
+
+#### JB CLD by period
+
+```{r}
+
+jb_CLD_period <- gam(CLD ~ s(PM10, by=Period) + s(NO2, by=Period) + s(CO3, by=Period) + s(SO2, by=Period) + s(O3, by=Period) + s(Mean) + s(Rainfall) + s(Wind) + s(doy, bs="cc", k=365) + s(time, bs = "bs") + Period, data = jbdata, method = "REML", family = 'poisson')
+summary(jb_CLD_period)
+
+plot.gam(jb_CLD_period, shade = TRUE, shade.col = "lightblue", shift = coef(jb_CLD_period)[1],  seWithMean = TRUE)
+
+gam.check(jb_CLD_period)
+```
+
+#### JB LRTI by period
+
+```{r}
+
+jb_LRTI_period <- gam(LRTI ~ s(PM10, by=Period) + s(NO2, by=Period) + s(CO3, by=Period) + s(SO2, by=Period) + s(O3, by=Period) + s(Mean) + s(Rainfall) + s(Wind) + s(doy, bs="cc", k=365) + s(time, bs = "bs") + Period, data = jbdata, method = "REML", family = 'poisson')
+summary(jb_LRTI_period)
+
+plot.gam(jb_LRTI_period, shade = TRUE, shade.col = "lightblue", shift = coef(jb_LRTI_period)[1],  seWithMean = TRUE)
+
+gam.check(jb_LRTI_period)
+```
+
+#### JB SX by period
+
+```{r}
+
+jb_sx_period <- gam(Symptoms_Signs ~ s(PM10, by=Period) + s(NO2, by=Period) + s(CO3, by=Period) + s(SO2, by=Period) + s(O3, by=Period) + s(Mean) + s(Rainfall) + s(Wind) + s(doy, bs="cc", k=365) + s(time, bs = "bs") + Period, data = jbdata, method = "REML", family = 'poisson')
+summary(jb_sx_period)
+
+plot.gam(jb_sx_period, shade = TRUE, shade.col = "lightblue", shift = coef(jb_sx_period)[1],  seWithMean = TRUE)
+
+gam.check(jb_sx_period)
+```
